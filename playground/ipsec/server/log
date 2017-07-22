@@ -1,0 +1,26 @@
+$ ip route show table 220
+10.100.255.1 via 10.0.1.1 dev ens4  proto static  src 10.0.1.2
+
+$ ipsec statusall
+Status of IKE charon daemon (strongSwan 5.3.5, Linux 4.10.0-27-generic, x86_64):
+  uptime: 11 minutes, since Jul 22 19:35:55 2017
+  malloc: sbrk 1642496, mmap 0, used 571344, free 1071152
+  worker threads: 11 of 16 idle, 5/0/0/0 working, job queue: 0/0/0/0, scheduled: 3
+  loaded plugins: charon test-vectors aes rc2 sha1 sha2 md4 md5 random nonce x509 revocation constraints pubkey pkcs1 pkcs7 pkcs8 pkcs12 pgp dnskey sshkey pem openssl fips-prf gmp agent xcbc hmac gcm attr kernel-netlink resolve socket-default connmark farp stroke updown eap-identity eap-sim eap-sim-pcsc eap-aka eap-aka-3gpp2 eap-simaka-pseudonym eap-simaka-reauth eap-md5 eap-gtc eap-mschapv2 eap-dynamic eap-radius eap-tls eap-ttls eap-peap eap-tnc xauth-generic xauth-eap xauth-pam xauth-noauth tnc-tnccs tnccs-20 tnccs-11 tnccs-dynamic dhcp lookip error-notify certexpire led addrblock unity
+Virtual IP pools (size/online/offline):
+  10.100.255.0/28: 14/1/0
+Listening IP addresses:
+  10.0.1.2
+Connections:
+      server:  10.0.1.2...%any  IKEv2
+      server:   local:  [server] uses pre-shared key authentication
+      server:   remote: uses pre-shared key authentication
+      server:   child:  10.0.0.0/16 === dynamic TUNNEL
+Security Associations (1 up, 0 connecting):
+      server[1]: ESTABLISHED 11 minutes ago, 10.0.1.2[server]...104.197.225.105[client]
+      server[1]: IKEv2 SPIs: 27eddcd46fb037de_i ac4728b3e0adf271_r*, pre-shared key reauthentication in 45 minutes
+      server[1]: IKE proposal: AES_CBC_128/HMAC_SHA1_96/PRF_HMAC_SHA1/MODP_2048
+      server{1}:  INSTALLED, TUNNEL, reqid 1, ESP in UDP SPIs: c1fcbb5d_i c330e0f5_o
+      server{1}:  AES_CBC_128/HMAC_SHA1_96, 0 bytes_i, 0 bytes_o, rekeying in 4 minutes
+      server{1}:   10.0.0.0/16 === 10.100.255.1/32
+

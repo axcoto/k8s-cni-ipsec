@@ -1,0 +1,33 @@
+$ ip addr show ens4
+2: ens4: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1460 qdisc pfifo_fast state UP group default qlen 1000
+    link/ether 42:01:0a:80:00:03 brd ff:ff:ff:ff:ff:ff
+    inet 10.128.0.3/32 brd 10.128.0.3 scope global ens4
+       valid_lft forever preferred_lft forever
+    inet 10.100.255.1/32 scope global ens4
+       valid_lft forever preferred_lft forever
+    inet6 fe80::4001:aff:fe80:3/64 scope link
+       valid_lft forever preferred_lft forever
+
+$ ip route show table 220
+10.0.0.0/16 via 10.128.0.1 dev ens4  proto static  src 10.100.255.1
+
+$ ipsec statusall
+Status of IKE charon daemon (strongSwan 5.3.5, Linux 4.10.0-27-generic, x86_64):
+  uptime: 9 minutes, since Jul 22 19:35:58 2017
+  malloc: sbrk 1642496, mmap 0, used 569776, free 1072720
+  worker threads: 11 of 16 idle, 5/0/0/0 working, job queue: 0/0/0/0, scheduled: 4
+  loaded plugins: charon test-vectors aes rc2 sha1 sha2 md4 md5 random nonce x509 revocation constraints pubkey pkcs1 pkcs7 pkcs8 pkcs12 pgp dnskey sshkey pem openssl fips-prf gmp agent xcbc hmac gcm attr kernel-netlink resolve socket-default connmark farp stroke updown eap-identity eap-sim eap-sim-pcsc eap-aka eap-aka-3gpp2 eap-simaka-pseudonym eap-simaka-reauth eap-md5 eap-gtc eap-mschapv2 eap-dynamic eap-radius eap-tls eap-ttls eap-peap eap-tnc xauth-generic xauth-eap xauth-pam xauth-noauth tnc-tnccs tnccs-20 tnccs-11 tnccs-dynamic dhcp lookip error-notify certexpire led addrblock unity
+Listening IP addresses:
+  10.128.0.3
+Connections:
+        home:  %any...104.198.224.245  IKEv2
+        home:   local:  [client] uses pre-shared key authentication
+        home:   remote: [server] uses pre-shared key authentication
+        home:   child:  dynamic === 10.0.0.0/16 TUNNEL
+Security Associations (1 up, 0 connecting):
+        home[1]: ESTABLISHED 9 minutes ago, 10.128.0.3[client]...104.198.224.245[server]
+        home[1]: IKEv2 SPIs: 27eddcd46fb037de_i* ac4728b3e0adf271_r, pre-shared key reauthentication in 44 minutes
+        home[1]: IKE proposal: AES_CBC_128/HMAC_SHA1_96/PRF_HMAC_SHA1/MODP_2048
+        home{1}:  INSTALLED, TUNNEL, reqid 1, ESP in UDP SPIs: c330e0f5_i c1fcbb5d_o
+        home{1}:  AES_CBC_128/HMAC_SHA1_96, 0 bytes_i, 0 bytes_o, rekeying in 4 minutes
+        home{1}:   10.100.255.1/32 === 10.0.0.0/16
