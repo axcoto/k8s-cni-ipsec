@@ -1,0 +1,31 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+# Vagrantfile API/syntax version. Don't touch unless you know what you're doing!
+VAGRANTFILE_API_VERSION = "2"
+
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+  # Our custom box with pre-configured k8s and vagrant
+  config.vm.box = "ubuntu/xenial64"
+
+  # Provison 3 nodes cluster
+  # First node is master
+  3.times do |i|
+    config.vm.define "n#{i+1}" do |node|
+      node.vm.hostname = "node-#{i+1}"
+
+      node.vm.box = "ubuntu/xenial64"
+      node.vm.network "private_network", ip: "10.9.0.#{2+i}"
+      node.vm.provider "virtualbox" do |vb|
+        vb.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
+        case i
+        when 0
+          # 1GB RAM for master node
+          vb.customize ["modifyvm", :id, "--memory", "1024"]
+        else
+          vb.customize ["modifyvm", :id, "--memory", "512"]
+        end
+      end
+    end
+  end
+end
