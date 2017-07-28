@@ -316,143 +316,142 @@ func enableIPForward(family int) error {
 func cmdAdd(args *skel.CmdArgs) error {
 	n, cniVersion, err := loadNetConf(args.StdinData)
 
-	//log.Println("strongswan", n, cniVersion)
+	log.Println("strongswan", n, cniVersion)
+	if err != nil {
+		return err
+	}
 
-	//if err != nil {
-	//	return err
-	//}
+	if n.IsDefaultGW {
+		n.IsGW = true
+	}
 
-	//if n.IsDefaultGW {
-	//	n.IsGW = true
-	//}
+	if n.HairpinMode && n.PromiscMode {
+		return fmt.Errorf("cannot set hairpin mode and promiscous mode at the same time.")
+	}
 
-	//if n.HairpinMode && n.PromiscMode {
-	//	return fmt.Errorf("cannot set hairpin mode and promiscous mode at the same time.")
-	//}
+	br, brInterface, err := setupBridge(n)
+	log.Println("strongswan", br, brInterface)
+	if err != nil {
+		return err
+	}
 
-	//br, brInterface, err := setupBridge(n)
-	//log.Println("strongswan", br, brInterface)
-	//if err != nil {
-	//	return err
-	//}
+	netns, err := ns.GetNS(args.Netns)
+	log.Println("strongswan", netns)
+	if err != nil {
+		return fmt.Errorf("failed to open netns %q: %v", args.Netns, err)
+	}
+	defer netns.Close()
 
-	//netns, err := ns.GetNS(args.Netns)
-	//log.Println("strongswan", netns)
-	//if err != nil {
-	//	return fmt.Errorf("failed to open netns %q: %v", args.Netns, err)
-	//}
-	//defer netns.Close()
+	hostInterface, containerInterface, err := setupVeth(netns, br, args.IfName, n.MTU, n.HairpinMode)
+	if err != nil {
+		return err
+	}
 
-	//hostInterface, containerInterface, err := setupVeth(netns, br, args.IfName, n.MTU, n.HairpinMode)
-	//if err != nil {
-	//	return err
-	//}
+	// run the IPAM plugin and get back the config to apply
+	r, err := ipam.ExecAdd(n.IPAM.Type, args.StdinData)
+	if err != nil {
+		return err
+	}
 
-	//// run the IPAM plugin and get back the config to apply
-	//r, err := ipam.ExecAdd(n.IPAM.Type, args.StdinData)
-	//if err != nil {
-	//	return err
-	//}
+	// Convert whatever the IPAM result was into the current Result type
+	result, err := current.NewResultFromResult(r)
+	if err != nil {
+		return err
+	}
 
-	//// Convert whatever the IPAM result was into the current Result type
-	//result, err := current.NewResultFromResult(r)
-	//if err != nil {
-	//	return err
-	//}
+	if len(result.IPs) == 0 {
+		return errors.New("IPAM plugin returned missing IP config")
+	}
 
-	//if len(result.IPs) == 0 {
-	//	return errors.New("IPAM plugin returned missing IP config")
-	//}
+	result.Interfaces = []*current.Interface{brInterface, hostInterface, containerInterface}
 
-	//result.Interfaces = []*current.Interface{brInterface, hostInterface, containerInterface}
+	// Gather gateway information for each IP family
+	gwsV4, gwsV6, err := calcGateways(result, n)
+	if err != nil {
+		return err
+	}
 
-	//// Gather gateway information for each IP family
-	//gwsV4, gwsV6, err := calcGateways(result, n)
-	//if err != nil {
-	//	return err
-	//}
+	// Configure the container hardware address and IP address(es)
+	if err := netns.Do(func(_ ns.NetNS) error {
+		// Disable IPv6 DAD just in case hairpin mode is enabled on the
+		// bridge. Hairpin mode causes echos of neighbor solicitation
+		// packets, which causes DAD failures.
+		// TODO: (short term) Disable DAD conditional on actual hairpin mode
+		// TODO: (long term) Use enhanced DAD when that becomes available in kernels.
+		if err := disableIPV6DAD(args.IfName); err != nil {
+			return err
+		}
 
-	//// Configure the container hardware address and IP address(es)
-	//if err := netns.Do(func(_ ns.NetNS) error {
-	//	// Disable IPv6 DAD just in case hairpin mode is enabled on the
-	//	// bridge. Hairpin mode causes echos of neighbor solicitation
-	//	// packets, which causes DAD failures.
-	//	// TODO: (short term) Disable DAD conditional on actual hairpin mode
-	//	// TODO: (long term) Use enhanced DAD when that becomes available in kernels.
-	//	if err := disableIPV6DAD(args.IfName); err != nil {
-	//		return err
-	//	}
+		if err := ipam.ConfigureIface(args.IfName, result); err != nil {
+			return err
+		}
 
-	//	if err := ipam.ConfigureIface(args.IfName, result); err != nil {
-	//		return err
-	//	}
+		if result.IPs[0].Address.IP.To4() != nil {
+			if err := ip.SetHWAddrByIP(args.IfName, result.IPs[0].Address.IP, nil /* TODO IPv6 */); err != nil {
+				return err
+			}
+		}
 
-	//	if result.IPs[0].Address.IP.To4() != nil {
-	//		if err := ip.SetHWAddrByIP(args.IfName, result.IPs[0].Address.IP, nil /* TODO IPv6 */); err != nil {
-	//			return err
-	//		}
-	//	}
+		// Refetch the veth since its MAC address may changed
+		link, err := netlink.LinkByName(args.IfName)
+		if err != nil {
+			return fmt.Errorf("could not lookup %q: %v", args.IfName, err)
+		}
+		containerInterface.Mac = link.Attrs().HardwareAddr.String()
 
-	//	// Refetch the veth since its MAC address may changed
-	//	link, err := netlink.LinkByName(args.IfName)
-	//	if err != nil {
-	//		return fmt.Errorf("could not lookup %q: %v", args.IfName, err)
-	//	}
-	//	containerInterface.Mac = link.Attrs().HardwareAddr.String()
+		return nil
+	}); err != nil {
+		return err
+	}
 
-	//	return nil
-	//}); err != nil {
-	//	return err
-	//}
+	if n.IsGW {
+		var firstV4Addr net.IP
+		// Set the IP address(es) on the bridge and enable forwarding
+		for _, gws := range []*gwInfo{gwsV4, gwsV6} {
+			for _, gw := range gws.gws {
+				if gw.IP.To4() != nil && firstV4Addr == nil {
+					firstV4Addr = gw.IP
+				}
 
-	//if n.IsGW {
-	//	var firstV4Addr net.IP
-	//	// Set the IP address(es) on the bridge and enable forwarding
-	//	for _, gws := range []*gwInfo{gwsV4, gwsV6} {
-	//		for _, gw := range gws.gws {
-	//			if gw.IP.To4() != nil && firstV4Addr == nil {
-	//				firstV4Addr = gw.IP
-	//			}
+				err = ensureBridgeAddr(br, gws.family, &gw, n.ForceAddress)
+				if err != nil {
+					return fmt.Errorf("failed to set bridge addr: %v", err)
+				}
+			}
 
-	//			err = ensureBridgeAddr(br, gws.family, &gw, n.ForceAddress)
-	//			if err != nil {
-	//				return fmt.Errorf("failed to set bridge addr: %v", err)
-	//			}
-	//		}
+			if gws.gws != nil {
+				if err = enableIPForward(gws.family); err != nil {
+					return fmt.Errorf("failed to enable forwarding: %v", err)
+				}
+			}
+		}
 
-	//		if gws.gws != nil {
-	//			if err = enableIPForward(gws.family); err != nil {
-	//				return fmt.Errorf("failed to enable forwarding: %v", err)
-	//			}
-	//		}
-	//	}
+		if firstV4Addr != nil {
+			if err := ip.SetHWAddrByIP(n.BrName, firstV4Addr, nil /* TODO IPv6 */); err != nil {
+				return err
+			}
+		}
+	}
 
-	//	if firstV4Addr != nil {
-	//		if err := ip.SetHWAddrByIP(n.BrName, firstV4Addr, nil /* TODO IPv6 */); err != nil {
-	//			return err
-	//		}
-	//	}
-	//}
+	if n.IPMasq {
+		chain := utils.FormatChainName(n.Name, args.ContainerID)
+		comment := utils.FormatComment(n.Name, args.ContainerID)
+		for _, ipc := range result.IPs {
+			if err = ip.SetupIPMasq(ip.Network(&ipc.Address), chain, comment); err != nil {
+				return err
+			}
+		}
+	}
 
-	//if n.IPMasq {
-	//	chain := utils.FormatChainName(n.Name, args.ContainerID)
-	//	comment := utils.FormatComment(n.Name, args.ContainerID)
-	//	for _, ipc := range result.IPs {
-	//		if err = ip.SetupIPMasq(ip.Network(&ipc.Address), chain, comment); err != nil {
-	//			return err
-	//		}
-	//	}
-	//}
+	// Refetch the bridge since its MAC address may change when the first
+	// veth is added or after its IP address is set
+	br, err = bridgeByName(n.BrName)
+	if err != nil {
+		return err
+	}
+	brInterface.Mac = br.Attrs().HardwareAddr.String()
 
-	//// Refetch the bridge since its MAC address may change when the first
-	//// veth is added or after its IP address is set
-	//br, err = bridgeByName(n.BrName)
-	//if err != nil {
-	//	return err
-	//}
-	//brInterface.Mac = br.Attrs().HardwareAddr.String()
-
-	//result.DNS = n.DNS
+	result.DNS = n.DNS
 
 	// Bring up strongSwan
 	if err = establishIpsec(args.Netns, args.ContainerID); err != nil {
@@ -466,10 +465,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 // We need a way to establish ipsec connection manually with strongswan
 // Maybe need to look into libstrongswan
 func establishIpsec(netNs string, containerId string) error {
-	//Extract procid to and use its as namespace in symlink
-	// /proc/27273/ns/net/ -> 27273
-	part := strings.Split(netNs, "/")
-	netNs = part[2]
+	netNs = extractProcId(netNs)
 	log.Println("strongswan", "establish ipsec for", netNs)
 
 	os.Mkdir("/var/run/netns", os.ModePerm)
@@ -493,8 +489,8 @@ func establishIpsec(netNs string, containerId string) error {
 	log.Println("strongswan", "ipaddr", string(ipinfo[:]))
 
 	// Bringup ipsec
-	args := []string{"netns", "exec", fmt.Sprintf("ns-%", netNs), "ipsec", "start"}
-	cmd := exec.Command("ip", args...)
+	args := []string{"bash", "-c", fmt.Sprintf("sleep 20; ip netns exec ns-%s ipsec start >>/tmp/cni-swan.log 2>&1", netNs), "&", "&>/tmp/nohup.log"}
+	cmd := exec.Command("nohup", args...)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
@@ -506,8 +502,11 @@ func establishIpsec(netNs string, containerId string) error {
 	return nil
 }
 
-func cleanupIpsec(netNs string) {
-
+// Stop ipsec, clearout namespace/configfile,symbol link that we have set
+func teardownIpsec(netNs string) {
+	netNs = extractProcId(netNs)
+	log.Println("strongswan", "teardown ipsec for", netNs)
+	exec.Command("ip", "netns", "exec", "ns-"+netNs, "ipsec", "stop").Run()
 }
 
 func cmdDel(args *skel.CmdArgs) error {
@@ -525,8 +524,11 @@ func cmdDel(args *skel.CmdArgs) error {
 	}
 
 	// There is a netns so try to clean up. Delete can be called multiple times
+	// First, let bring down the ipsec
+	teardownIpsec(args.Netns)
+
 	// so don't return an error if the device is already removed.
-	// If the device isn't there then don't try to clean up IP masq either.
+	// If the device isn't there then don't try to clean up IP masq either	.
 	var ipn *net.IPNet
 	err = ns.WithNetNSPath(args.Netns, func(_ ns.NetNS) error {
 		var err error
@@ -548,6 +550,13 @@ func cmdDel(args *skel.CmdArgs) error {
 	}
 
 	return err
+}
+
+func extractProcId(netNs string) string {
+	//Extract procid to and use its as namespace in symlink
+	// /proc/27273/ns/net/ -> 27273
+	part := strings.Split(netNs, "/")
+	return part[2]
 }
 
 func main() {
