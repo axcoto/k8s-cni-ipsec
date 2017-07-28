@@ -1,7 +1,8 @@
 FROM ubuntu
 
-RUN wget http://download.strongswan.org/strongswan-5.5.3.tar.bz2 && \
-    tar xvf strongswan-5.5.3.tar.bz2 && \
+
+ADD http://download.strongswan.org/strongswan-5.5.3.tar.bz2 strongswan-5.5.3.tar.bz2
+RUN tar xvf strongswan-5.5.3.tar.bz2 && \
     cd strongswan-5.5.3 && \
     apt install build-essential libgmp-dev iproute2  && \
     ./configure --prefix=/usr --sysconfdir=/etc --with-piddir=/etc/ipsec.d/run && \
