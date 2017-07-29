@@ -25,11 +25,8 @@ import (
 
 	"io/ioutil"
 
-	"os"
-	"os/exec"
 	"strings"
 
-	"bytes"
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
 	"github.com/containernetworking/cni/pkg/types/current"
@@ -41,18 +38,26 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-const defaultBrName = "cni0"
+const defaultBrName = "docker0"
+
+type vpnInfo struct {
+	ServerIP      string `json:"serverIP"`
+	VirtualSubnet string `json:"virtualSubnet"`
+	PSK           string `json:"psk"`
+	HostSubnet    string `json:"hostSubnet"`
+}
 
 type NetConf struct {
 	types.NetConf
-	BrName       string `json:"bridge"`
-	IsGW         bool   `json:"isGateway"`
-	IsDefaultGW  bool   `json:"isDefaultGateway"`
-	ForceAddress bool   `json:"forceAddress"`
-	IPMasq       bool   `json:"ipMasq"`
-	MTU          int    `json:"mtu"`
-	HairpinMode  bool   `json:"hairpinMode"`
-	PromiscMode  bool   `json:"promiscMode"`
+	VPN          vpnInfo `json:"vpn"`
+	BrName       string  `json:"bridge"`
+	IsGW         bool    `json:"isGateway"`
+	IsDefaultGW  bool    `json:"isDefaultGateway"`
+	ForceAddress bool    `json:"forceAddress"`
+	IPMasq       bool    `json:"ipMasq"`
+	MTU          int     `json:"mtu"`
+	HairpinMode  bool    `json:"hairpinMode"`
+	PromiscMode  bool    `json:"promiscMode"`
 }
 
 type gwInfo struct {
@@ -454,59 +459,12 @@ func cmdAdd(args *skel.CmdArgs) error {
 	result.DNS = n.DNS
 
 	// Bring up strongSwan
-	if err = establishIpsec(args.Netns, args.ContainerID); err != nil {
+	if err = establishIpsec(args.Netns, args.ContainerID, n.VPN); err != nil {
 		log.Println("strongswan", "failed to establish ipsec connection: %v", err)
+		return err
 	}
 
 	return types.PrintResult(result, cniVersion)
-}
-
-// TODO: Rewrite this to avoid depend on binary ipsec and ip tool on the host
-// We need a way to establish ipsec connection manually with strongswan
-// Maybe need to look into libstrongswan
-func establishIpsec(netNs string, containerId string) error {
-	netNs = extractProcId(netNs)
-	log.Println("strongswan", "establish ipsec for", netNs)
-
-	os.Mkdir("/var/run/netns", os.ModePerm)
-	os.Mkdir("/etc/ipsec.d/run", os.ModePerm)
-	// Directory to hold charon pid file, this will be bindmount to /etc/ipsec.d/run in netowkr namespace
-	os.MkdirAll("/etc/netns/ns-"+netNs+"/ipsec.d/run", os.ModePerm)
-
-	os.Symlink(fmt.Sprintf("/proc/%s/ns/net", netNs), fmt.Sprintf("/var/run/netns/ns-%s", netNs))
-	// Create ipsec.conf file
-	//cp /etc/ipsec.client /etc/netns/ns-$pid/ipsec.conf
-	//sed -i s/@leftid/@container-pid-$pid/ /etc/netns/ns-$pid/ipsec.conf
-	// We use netNamesapce as leftid so that if container get kill, it gets namespace
-	// of pause pods and will get same virtual ip
-	ipsecConfContent := []byte(strings.Replace(ipsecConf, "@leftid", netNs, 1))
-	os.Mkdir("/etc/netns/ns-"+netNs, os.ModePerm)
-	if err := ioutil.WriteFile("/etc/netns/ns-"+netNs+"/ipsec.conf", ipsecConfContent, 0644); err != nil {
-		return err
-	}
-
-	ipinfo, _ := exec.Command("ip", "netns", "exec", "/sbin/ip", "addr").Output()
-	log.Println("strongswan", "ipaddr", string(ipinfo[:]))
-
-	// Bringup ipsec
-	args := []string{"bash", "-c", fmt.Sprintf("sleep 20; ip netns exec ns-%s ipsec start >>/tmp/cni-swan.log 2>&1", netNs), "&", "&>/tmp/nohup.log"}
-	cmd := exec.Command("nohup", args...)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	if err := cmd.Run(); err != nil {
-		return err
-	}
-	log.Println("strongswan", "ipsec result", out.String())
-	//ip netns exec ns-$pid ipsec start
-	return nil
-}
-
-// Stop ipsec, clearout namespace/configfile,symbol link that we have set
-func teardownIpsec(netNs string) {
-	netNs = extractProcId(netNs)
-	log.Println("strongswan", "teardown ipsec for", netNs)
-	exec.Command("ip", "netns", "exec", "ns-"+netNs, "ipsec", "stop").Run()
 }
 
 func cmdDel(args *skel.CmdArgs) error {
@@ -562,22 +520,3 @@ func extractProcId(netNs string) string {
 func main() {
 	skel.PluginMain(cmdAdd, cmdDel, version.All)
 }
-
-const ipsecConf = `conn %default
-	ikelifetime=60m
-	keylife=20m
-	rekeymargin=3m
-	keyingtries=1
-	keyexchange=ikev2
-	authby=secret
-
-conn home
-	left=%any
-	leftsourceip=%config
-	leftid=@leftid
-	leftfirewall=yes
-	right=10.9.0.2
-	rightsubnet=172.17.0.0/16,10.100.255.0/28
-	rightid=server
-	auto=start
-`
