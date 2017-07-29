@@ -14,18 +14,46 @@ namespace of container.
 Every pods become a client of strongswan, and get an ip address from
 virtual ip pool of strongswan.
 
+## Components
+
+### On Master
+
+On master, we run a pod in `strongswan` namespace, in privilegesd mode,
+forward port 400 and 4500 into pods
+
+## On Minion
+
+Every pods from minion will connect to `strongswan`, via IP address of
+master server.
+
 # How to use it
 
-## Requirement on host:
+## Requirement on all nodes:
 
-The host has to installed `strongswan` so `ipsec` binary can be invoke.
+The host has to have `strongswan` preinstalled so `ipsec` binary can be invoke.
 StrongSwan can be install with this commands.
 
 ```
-
+wget http://download.strongswan.org/strongswan-5.5.3.tar.bz2
+tar xvf strongswan-5.5.3.tar.bz2
+cd strongswan-5.5.3
+sudo apt install build-essential libgmp-dev
+/configure --prefix=/usr --sysconfdir=/etc --with-piddir=/etc/ipsec.d/run
+make && sudo make install
 ```
 
-## Puts the `strongswan` plugin executable file into `/opt/cni/bin/`,
+Notice that here, we build strongswan outselve from source, because we want to set
+a custom `piddir`. This custom `piddir` enable us to run multiple charon instances.
+
+## Requirement on master
+
+On master, the strongswan daemon has to be run, it can run directly on host,
+or as pod(in privileges mode, foward port 500 and 4500) up to developer devcison.
+As long as we have a strongSwan server, we're fine
+
+## Install
+
+### Puts the `strongswan` plugin executable file into `/opt/cni/bin/`,
 create a file `/etc/cni/net.d/10-swan.json` with this content
 
 ```
@@ -44,10 +72,12 @@ create a file `/etc/cni/net.d/10-swan.json` with this content
 }
 ```
 
+## Restart `kubelet` to take effective of this CNI plugin
+
 
 # Demo
 
-This is a demo video: 
+This is a demo video:
 
 # Trying out with Vagrant
 
