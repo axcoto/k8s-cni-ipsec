@@ -6,25 +6,29 @@ VAGRANTFILE_API_VERSION = "2"
 
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   # Our custom box with pre-configured k8s and vagrant
-  config.vm.box = "ubuntu/xenial64"
-
   # Provison 3 nodes cluster
-  # First node is master
-  3.times do |i|
-    config.vm.define "n#{i+1}" do |node|
-      node.vm.hostname = "node-#{i+1}"
 
-      node.vm.box = "ubuntu/xenial64"
-      node.vm.network "private_network", ip: "10.9.0.#{2+i}"
+  # First node is master
+  config.vm.define "master" do |node|
+    node.vm.hostname = "master.dev"
+    node.vm.network "private_network", ip: "10.9.0.2"
+    node.vm.provider "virtualbox" do |vb|
+      vb.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
+      node.vm.box = "kureikain/k8s-cni-strongswan-master"
+      # Give it more RAM since master run lots of stuff
+      vb.customize ["modifyvm", :id, "--memory", "1536"]
+    end
+  end
+
+  2.times do |i|
+    config.vm.define "minion#{i+1}" do |node|
+      node.vm.hostname = "minion-#{i+1}.dev"
+      node.vm.network "private_network", ip: "10.9.0.#{3+i}"
+
       node.vm.provider "virtualbox" do |vb|
         vb.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
-        case i
-        when 0
-          # 1GB RAM for master node
-          vb.customize ["modifyvm", :id, "--memory", "1024"]
-        else
-          vb.customize ["modifyvm", :id, "--memory", "512"]
-        end
+        node.vm.box = "kureikain/k8s-cni-strongswan-node"
+        vb.customize ["modifyvm", :id, "--memory", "512"]
       end
     end
   end
