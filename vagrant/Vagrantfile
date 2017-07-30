@@ -3,33 +3,52 @@
 
 # Vagrantfile API/syntax version. Don't touch unless you know what you're doing!
 VAGRANTFILE_API_VERSION = "2"
+PREDEFINE_TOKEN = "390699.8859a9a052d8b9f9".freeze
+JOIN_CLUSTER = <<SCRIPT
+kubeadm join --token #{PREDEFINE_TOKEN} 10.9.0.2:6443 --skip-preflight-checks
+SCRIPT
+
+def provison_script(node)
+  case node
+  when 'master'.freeze
+    # Output token so we can manually join into it
+    'echo "no bootstrap for master. It\'s preconfigured"'
+  else
+    JOIN_CLUSTER
+  end
+end
 
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   # Our custom box with pre-configured k8s and vagrant
   # Provison 3 nodes cluster
+  config.ssh.username = "ubuntu"
+  config.vm.boot_timeout = 600 # 10 minute since it may slow to startup the cluster
 
   # First node is master
-  config.vm.define "master" do |node|
-    node.vm.hostname = "master.dev"
-    node.vm.network "private_network", ip: "10.9.0.2"
-    node.vm.provider "virtualbox" do |vb|
+  config.vm.define "master" do |master|
+    master.vm.provision :shell, inline: provison_script('master')
+    master.vm.box = "kureikain/k8s-cni-strongswan-master"
+    master.vm.hostname = "master.dev"
+    master.vm.network "private_network", ip: "10.9.0.2"
+    master.vm.provider "virtualbox" do |vb|
       vb.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
-      node.vm.box = "kureikain/k8s-cni-strongswan-master"
       # Give it more RAM since master run lots of stuff
       vb.customize ["modifyvm", :id, "--memory", "1536"]
     end
   end
 
   2.times do |i|
-    config.vm.define "minion#{i+1}" do |node|
-      node.vm.hostname = "minion-#{i+1}.dev"
-      node.vm.network "private_network", ip: "10.9.0.#{3+i}"
+    config.vm.define "minion#{i+1}" do |minion|
+      minion.vm.provision :shell, inline: provison_script('minion')
+      minion.vm.box = "kureikain/k8s-cni-strongswan-minion"
+      minion.vm.hostname = "minion-#{i+1}.dev"
+      minion.vm.network "private_network", ip: "10.9.0.#{3+i}"
 
-      node.vm.provider "virtualbox" do |vb|
+      minion.vm.provider "virtualbox" do |vb|
         vb.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
-        node.vm.box = "kureikain/k8s-cni-strongswan-node"
         vb.customize ["modifyvm", :id, "--memory", "512"]
       end
     end
   end
 end
+
