@@ -5,21 +5,23 @@ ip return from strongswan
 
 # How it works
 
-It's an modification of `bridge` plugin. We use `bridge` plugin, to
-create interface.
+It's an modification of `bridge` plugin. We use `bridge` plugin, and
+ipam to assign an ip address normally.
 
 After network connections are up, we run `ipsec` inside network
 namespace of container.
 
 Every pods become a client of strongswan, and get an ip address from
-virtual ip pool of strongswan.
+virtual ip pool of strongswan. All clients, therefore pods can talk
+to each others.
 
 ## Components
 
 ### On Master
 
-On master, we run a pod in `strongswan` namespace, in privilegesd mode,
-forward port 400 and 4500 into pods
+StrongSwan has to be pre-configured and run in master node. Currently,
+the plugin only support IKEV2 PSK. We need to define a virtual ip pool,
+pod will get ip address from this virtual ip pool.
 
 ## On Minion
 
@@ -47,9 +49,9 @@ a custom `piddir`. This custom `piddir` enable us to run multiple charon instanc
 
 ## Requirement on master
 
-On master, the strongswan daemon has to be run, it can run directly on host,
+On master, we need to run strongSwan as a daemon, it can run directly on host,
 or as pod(in privileges mode, foward port 500 and 4500) up to developer devcison.
-As long as we have a strongSwan server, we're fine
+As long as we have a strongSwan server, we're fine.
 
 ## Install
 
@@ -61,6 +63,8 @@ create a file `/etc/cni/net.d/10-swan.json` with this content
 	"name": "mynet",
 	"type": "bridge",
 	"bridge": "docker0",
+  "vpn": {
+  },
 	"isDefaultGateway": true,
 	"forceAddress": false,
 	"ipMasq": true,
