@@ -8,11 +8,17 @@ JOIN_CLUSTER = <<SCRIPT
 kubeadm join --token #{PREDEFINE_TOKEN} 10.9.0.2:6443 --skip-preflight-checks
 SCRIPT
 
+CONFIGURE_MASTER = <<SCRIPT
+mkdir -p /home/ubuntu/.kube
+cp -i /etc/kubernetes/admin.conf /home/ubuntu/.kube/config
+chown ubuntu:ubuntu /home/ubuntu/.kube/config
+SCRIPT
+
 def provison_script(node)
   case node
   when 'master'.freeze
     # Output token so we can manually join into it
-    'echo "no bootstrap for master. It\'s preconfigured"'
+    CONFIGURE_MASTER
   else
     JOIN_CLUSTER
   end
@@ -37,6 +43,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     end
   end
 
+  # Minion follow, with their ip increase and less memory
   2.times do |i|
     config.vm.define "minion#{i+1}" do |minion|
       minion.vm.provision :shell, inline: provison_script('minion')
@@ -51,4 +58,3 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     end
   end
 end
-
