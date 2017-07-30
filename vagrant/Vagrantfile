@@ -45,6 +45,8 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
   # Minion follow, with their ip increase and less memory
   2.times do |i|
+    sleep 30 # Give it sometime to rest, on a powerful machine, we can remove this
+
     config.vm.define "minion#{i+1}" do |minion|
       minion.vm.provision :shell, inline: provison_script('minion')
       minion.vm.box = "kureikain/k8s-cni-strongswan-minion"

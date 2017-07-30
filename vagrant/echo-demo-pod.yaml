@@ -1,4 +1,14 @@
+# Create namespace first
 ---
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: demo
+  labels:
+    name: demo
+---
+
+# Put deployment there
 kind: Deployment
 apiVersion: extensions/v1beta1
 metadata:
