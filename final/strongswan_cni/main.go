@@ -318,10 +318,10 @@ func enableIPForward(family int) error {
 	return ip.EnableIP6Forward()
 }
 
+// Main entry point for CNI to add and configure interface
 func cmdAdd(args *skel.CmdArgs) error {
 	n, cniVersion, err := loadNetConf(args.StdinData)
 
-	log.Println("strongswan", n, cniVersion)
 	if err != nil {
 		return err
 	}
@@ -335,13 +335,11 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 
 	br, brInterface, err := setupBridge(n)
-	log.Println("strongswan", br, brInterface)
 	if err != nil {
 		return err
 	}
 
 	netns, err := ns.GetNS(args.Netns)
-	log.Println("strongswan", netns)
 	if err != nil {
 		return fmt.Errorf("failed to open netns %q: %v", args.Netns, err)
 	}
@@ -508,13 +506,6 @@ func cmdDel(args *skel.CmdArgs) error {
 	}
 
 	return err
-}
-
-func extractProcId(netNs string) string {
-	//Extract procid to and use its as namespace in symlink
-	// /proc/27273/ns/net/ -> 27273
-	part := strings.Split(netNs, "/")
-	return part[2]
 }
 
 func main() {

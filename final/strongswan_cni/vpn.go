@@ -14,6 +14,9 @@ const (
 	ipsecSecretPath = "/etc/ipsec.secrets"
 )
 
+// Establish an IPSec connection with strongSwan so that we can get an virtual IP
+// This is a hack currently. Basically the interface wasn't ready when CNI run yet
+// Hence we basically run a 10 times retry to bring up ipsec
 // TODO: Rewrite this to avoid depend on binary ipsec and ip tool on the host
 // We need a way to establish ipsec connection manually with strongswan
 // Maybe need to look into libstrongswan
@@ -21,26 +24,25 @@ func establishIpsec(netNs string, containerId string, vpnInfo vpnInfo) error {
 	netNs = extractProcId(netNs)
 	log.Println("strongswan", "establish ipsec for", netNs)
 
+	// Prepare directory tree
+	// We're using ip netns, which require the network namespace in /var/run/netns/namespace
+	// docker doesn't do this neither K8S, so we manually extract proc id and create symbol link
 	os.Mkdir("/var/run/netns", os.ModePerm)
+	os.Symlink(fmt.Sprintf("/proc/%s/ns/net", netNs), fmt.Sprintf("/var/run/netns/ns-%s", netNs))
+
+	// When charon run, it puts pid file in /etc/ipsec.d/run hence we cannot run multiple instance
+	// Luckily it has a capability to bind mount anything in /etc/netns/namespace/ into /etc/
+	// respectively. We use this trick to create directory hold those pid and socket file
 	os.Mkdir("/etc/ipsec.d/run", os.ModePerm)
-	// Directory to hold charon pid file, this will be bindmount to /etc/ipsec.d/run in netowkr namespace
 	os.MkdirAll("/etc/netns/ns-"+netNs+"/ipsec.d/run", os.ModePerm)
 
-	os.Symlink(fmt.Sprintf("/proc/%s/ns/net", netNs), fmt.Sprintf("/var/run/netns/ns-%s", netNs))
-	// Create ipsec.conf file
-	//cp /etc/ipsec.client /etc/netns/ns-$pid/ipsec.conf
-	//sed -i s/@leftid/@container-pid-$pid/ /etc/netns/ns-$pid/ipsec.conf
-	// We use netNamesapce as leftid so that if container get kill, it gets namespace
-	// of pause pods and will get same virtual ip
+	// Finally, generate client VPN configuration
 	if err := genVpnConfig(netNs, vpnInfo); err != nil {
 		return err
 	}
 
-	ipinfo, _ := exec.Command("ip", "netns", "exec", "/sbin/ip", "addr").Output()
-	log.Println("strongswan", "ipaddr", string(ipinfo[:]))
-
-	// Bringup ipsec
-	args := []string{"bash", "-c", fmt.Sprintf("sleep 20; ip netns exec ns-%s ipsec start >>/tmp/cni-swan.log 2>&1", netNs), "&", "&>/tmp/nohup.log"}
+	// Everything is ready, we can officially bring up ipsec
+	args := []string{"bash", "-c", fmt.Sprintf(bringupIpsecScript, netNs), "&", "&>/tmp/nohup.log"}
 	cmd := exec.Command("nohup", args...)
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -49,7 +51,6 @@ func establishIpsec(netNs string, containerId string, vpnInfo vpnInfo) error {
 		return err
 	}
 	log.Println("strongswan", "ipsec result", out.String())
-	//ip netns exec ns-$pid ipsec start
 	return nil
 }
 
@@ -58,6 +59,7 @@ func teardownIpsec(netNs string) {
 	netNs = extractProcId(netNs)
 	log.Println("strongswan", "teardown ipsec for", netNs)
 	exec.Command("ip", "netns", "exec", "ns-"+netNs, "ipsec", "stop").Run()
+
 }
 
 // Generate VPN config for pod
@@ -80,6 +82,15 @@ func genVpnConfig(netNs string, vpnInfo vpnInfo) error {
 	return nil
 }
 
+// Extract procid to and use its as namespace in symlink
+//  Example: /proc/27273/ns/net/ -> 27273
+func extractProcId(netNs string) string {
+	part := strings.Split(netNs, "/")
+	return part[2]
+}
+
+// When CNI runs, the interface wasn't configured and up yet, we sleep a bit and re-try ten time before give up
+const bringupIpsecScript = "for r in {1..10}; do sleep 10; if ip netns exec ns-%s ip addr | grep eth0; then ip netns exec ns-%s ipsec start >/dev/null 2>&1; break; fi; done"
 const ipsecConf = `conn %default
 	ikelifetime=60m
 	keylife=20m
