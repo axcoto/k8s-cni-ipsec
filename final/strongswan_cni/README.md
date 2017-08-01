@@ -1,19 +1,20 @@
 # StrongSwan CNI Plugin
 
 A plugin to esbalish a pod-to-pod communication over IPSec, with virtual
-ip return from strongswan
+ip return from strongSwan
 
 # How it works
 
-It's an modification of `bridge` plugin. We use `bridge` plugin, and
-ipam to assign an ip address normally.
+It's a modification of `bridge` plugin. We use `bridge` plugin, and
+`ipam` to assign an ip address normally.
 
 After network connections are up, we run `ipsec` inside network
 namespace of container.
 
-Every pods become a client of strongswan, and get an ip address from
-virtual ip pool of strongswan. All clients, therefore pods can talk
-to each others.
+Every pods becomes a client of strongSwan, which is deployed separately,
+and get an ip address from virtual ip pool of strongswan. The ip is then
+assing to the `eth0` interface. All clients(pods in our case) can to each
+others using that virtual ip.
 
 ## Components
 
@@ -25,14 +26,14 @@ pod will get ip address from this virtual ip pool.
 
 ## On Minion
 
-Every pods from minion will connect to `strongswan`, via IP address of
+Every pods from minion will connect to `strongSwan`, via IP address of
 master server.
 
 # How to use it
 
 ## Requirement on all nodes:
 
-The host has to have `strongswan` preinstalled so `ipsec` binary can be invoke.
+The host has to have `strongSwan` preinstalled so `ipsec` binary can be invoke.
 StrongSwan can be install with this commands.
 
 ```
@@ -44,8 +45,9 @@ sudo apt install build-essential libgmp-dev
 make && sudo make install
 ```
 
-Notice that here, we build strongswan outselve from source, because we want to set
-a custom `piddir`. This custom `piddir` enable us to run multiple charon instances.
+Notice that here, we build strongswan outselves from source, because we want to
+set a custom `piddir`. This custom `piddir` enable us to run multiple charon
+instances.
 
 ## Requirement on master
 
@@ -55,72 +57,44 @@ As long as we have a strongSwan server, we're fine.
 
 ## Install
 
-### Puts the `strongswan` plugin executable file into `/opt/cni/bin/`,
-create a file `/etc/cni/net.d/10-swan.json` with this content
+* Puts the `strongswan` plugin executable file into `/opt/cni/bin/`. The file can be
+download in relase page.
 
-```
-{
-	"name": "mynet",
-	"type": "bridge",
-	"bridge": "docker0",
-  "vpn": {
-  },
-	"isDefaultGateway": true,
-	"forceAddress": false,
-	"ipMasq": true,
-	"hairpinMode": true,
-	"ipam": {
-		"type": "host-local",
-		"subnet": "172.17.0.0/16"
-	}
-}
-```
+* Create a file `/etc/cni/net.d/10-swan.json` with this content
 
-## Restart `kubelet` to take effective of this CNI plugin
+		```
+		{
+			"name": "ipsec",
+			"type": "strongswan",
+			"vpn": {
+				// this is ip address where we run strongswan
+				"serverIP": "10.9.0.2", 
+				// this is virtual subnet that we will get ip address from. Same value on strongSwan server
+				"virtualSubnet": "10.173.0.0/16",
+				// this is subnet of minion.
+				"hostSubnet": "10.9.0.0/24",
+				// IKEV2 PSK: same value on strongSwan server
+				"PSK": "dummy1234"
+			},
+			"bridge": "docker0",
+			"isDefaultGateway": true,
+			"forceAddress": false,
+			"ipMasq": true,
+			"hairpinMode": true,
+			"ipam": {
+				"type": "host-local",
+				"subnet": "172.17.0.0/16"
+			}
+		}
+		```
 
+* Restart `kubelet` to take effective of this CNI plugin
 
 # Demo
 
-This is a demo video:
+This is a demo video: To be added
 
 # Trying out with Vagrant
 
-We have a `Vagrantfile` which expose cluster at: https://github.com/yeolabs/k8s-cni-ipsec/tree/master/vagrant
-
-Clone this repository, cd into vagrant folder and run:
-
-```
-vagrant up
-```
-
-This provision a cluster of 3 nodes, on private subnet `10.9.0.0/24`.
-
-Once cluster is up, you can ssh into any node:
-
-```
-vagrant ssh master
-vagrant ssh minion1
-vagrant ssh minion2
-```
-
-Now, let's deploy something. Inside `vagrant` filder, run this:
-
-```
-kubectl --kubeconfig admin.conf apply nginx-spec.yaml
-```
-
-Or you can use `dashboard`:
-
-```
-kubectl --kubeconfig admin.conf proxy
-```
-
-And open browser at : http://127.0.0.1:8001/ui
-
-After pods are ready. You can attach a shell into nodes, and check their ip address:
-
-```
-ip addr
-```
-
-You can freely ping any ip between them or run `curl [the-private-ip]`
+We have a `Vagrantfile` which setup a sample cluster at: https://github.com/yeolabs/k8s-cni-ipsec/tree/master/final/vagrant
+with this plugin. Follow instruction there to bring it up.

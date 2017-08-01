@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	ipsecSecretPath = "/etc/ipsec.secrets"
+	logPrefix = "strongswan"
 )
 
 // Establish an IPSec connection with strongSwan so that we can get an virtual IP
@@ -22,9 +22,31 @@ const (
 // Maybe need to look into libstrongswan
 func establishIpsec(netNs string, containerId string, vpnInfo vpnInfo) error {
 	netNs = extractProcId(netNs)
-	log.Println("strongswan", "establish ipsec for", netNs)
+	log.Println(logPrefix, "establish ipsec for", netNs)
 
-	// Prepare directory tree
+	prepareNetNsDirectory(netNs)
+
+	// Finally, generate client VPN configuration
+	if err := genVpnConfig(netNs, vpnInfo); err != nil {
+		return err
+	}
+
+	// Everything is ready, we can officially bring up ipsec
+	args := []string{"bash", "-c", fmt.Sprintf(bringupIpsecScript, netNs, netNs), "&>/tmp/nohup.log"}
+	cmd := exec.Command("nohup", args...)
+	log.Println(logPrefix, "ipsec command", "nohup", args)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		log.Println(logPrefix, "ipsec bringup error", out.String())
+		return err
+	}
+	return nil
+}
+
+// Prepare directory tree for the vpn to run
+func prepareNetNsDirectory(netNs string) {
 	// We're using ip netns, which require the network namespace in /var/run/netns/namespace
 	// docker doesn't do this neither K8S, so we manually extract proc id and create symbol link
 	os.Mkdir("/var/run/netns", os.ModePerm)
@@ -35,31 +57,14 @@ func establishIpsec(netNs string, containerId string, vpnInfo vpnInfo) error {
 	// respectively. We use this trick to create directory hold those pid and socket file
 	os.Mkdir("/etc/ipsec.d/run", os.ModePerm)
 	os.MkdirAll("/etc/netns/ns-"+netNs+"/ipsec.d/run", os.ModePerm)
-
-	// Finally, generate client VPN configuration
-	if err := genVpnConfig(netNs, vpnInfo); err != nil {
-		return err
-	}
-
-	// Everything is ready, we can officially bring up ipsec
-	args := []string{"bash", "-c", fmt.Sprintf(bringupIpsecScript, netNs), "&", "&>/tmp/nohup.log"}
-	cmd := exec.Command("nohup", args...)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	if err := cmd.Run(); err != nil {
-		return err
-	}
-	log.Println("strongswan", "ipsec result", out.String())
-	return nil
+	os.MkdirAll("/etc/netns/ns-"+netNs, os.ModePerm)
 }
 
 // Stop ipsec, clearout namespace/configfile,symbol link that we have set
 func teardownIpsec(netNs string) {
 	netNs = extractProcId(netNs)
-	log.Println("strongswan", "teardown ipsec for", netNs)
+	log.Println(logPrefix, "teardown ipsec for", netNs)
 	exec.Command("ip", "netns", "exec", "ns-"+netNs, "ipsec", "stop").Run()
-
 }
 
 // Generate VPN config for pod
@@ -70,13 +75,13 @@ func genVpnConfig(netNs string, vpnInfo vpnInfo) error {
 	configContent = strings.Replace(configContent, "$VirtualSubnet$", vpnInfo.VirtualSubnet, 1)
 	configContent = strings.Replace(configContent, "$HostSubnet$", vpnInfo.HostSubnet, 1)
 
-	os.MkdirAll("/etc/netns/ns-"+netNs, os.ModePerm)
 	if err := ioutil.WriteFile("/etc/netns/ns-"+netNs+"/ipsec.conf", []byte(configContent), 0644); err != nil {
 		return err
 	}
 
-	if _, err := os.Stat(ipsecSecretPath); os.IsNotExist(err) {
-		ioutil.WriteFile(ipsecSecretPath, []byte(fmt.Sprintf("%%any : PSK %s", vpnInfo.PSK)), 0644)
+	ipsecSecretPath := "/etc/netns/ns-" + netNs + "/ipsec.secrets"
+	if err := ioutil.WriteFile(ipsecSecretPath, []byte(fmt.Sprintf("%%any : PSK %s", vpnInfo.PSK)), 0644); err != nil {
+		return err
 	}
 
 	return nil
