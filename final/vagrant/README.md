@@ -90,22 +90,12 @@ fast the machine since we run 3 VM at a same time.
 Note that the cluster using *Kubernetes 1.7.2* so you may want to make
 sure your `kubectl` is at same version.
 
-Or you can also ssh into master, under *ubuntu* user and use `kubectl`
-on there. It's preconfigured, you don't have to specify `kubeconfig`.
+Or you can also ssh into master and use `kubectl` on there.
 
 ```
 vagrant ssh master
-$ kubectl get nodes
+$ sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get nodes
 ```
-
-We also pre-configured dashboard. Hence you can simply run this from
-your host machine to access dashboard:
-
-```
-kubectl --kubeconfig admin.conf proxy
-```
-
-Then open browser at [http://127.0.0.1:8001/ui](http://127.0.0.1:8001/ui)
 
 ## Spin up pods:
 
@@ -116,11 +106,28 @@ kubectl --kubeconfig admin.conf apply -f echo-demo-pod.yaml
 ```
 
 This creates namespace `demo`, run 9 pods of a simple echo server which echo
-the target hostname and visitor ip address.
+the target hostname and visitor ip address. This echo server runs on port 5678
 
 Once all pods are ready, you can attach a shell into them, and pod
 should be able to communicate freely with other pods use the virtual ip
 from VPN. That's the IP address of subnet *10.173.0.0/16*.
+
+To find the IP Address of node, you can SSH into a server and find the docker
+container then use `docker exec` to run `ip addr`
+
+```
+vagrant ssh master
+sudo docker ps | grep demo
+sudo docker exec -it [above-container-id] ip addr
+```
+
+Once you know IP address of all pod, simply attach shell to a pod and request other pods:
+
+```
+vagrant ssh master
+sudo docker exec -it [container-id] shell
+$ curl [other-pod-ip]:5678
+```
 
 ## Bonus
 
