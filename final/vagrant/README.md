@@ -5,69 +5,31 @@ driver. *kubeadm* is used for bootstrap cluster.
 
 ## Quick startup
 
+Bring whole cluster with our default configuration, then deploy
+9 pods of our echo server. Find ip address of pod, note them,
+attach shell to a node and ping the above ip address.
+
 ```
-$ vagrant up
-$ kubectl --kubeconfig admin.conf get nodes
-NAME       STATUS    AGE       VERSION
-master     Ready     3h        v1.7.2
-minion-1   Ready     2h        v1.7.2
-minion-2   Ready     3m        v1.7.2
-# Make sure you see 3 nodes ready, it may takes a few minutes
-# Or if a node not show up after awhile, you can try reload it
-# example
-# vagrant reload minion2
-
-# Optinal to run kubectl proxy for UI dashboard on http://127.0.0.1:8001/ui
-kubectl --kubeconfig admin.conf proxy
-
-# Bring up 9 pods with a simple echo server which listen on port 5678
-$ kubectl --kubeconfig admin.conf create -f echo-demo-pod.yaml
-namespace "demo" created
-deployment "demo" created
-
-# Wait until all pods are up
-$ kubectl --kubeconfig admin.conf get pods --namespace=demo
-NAME                    READY     STATUS    RESTARTS   AGE
-demo-1594119973-1nvrn   1/1       Running   0          1m
-demo-1594119973-4fp4r   1/1       Running   0          1m
-demo-1594119973-8j0kw   1/1       Running   0          1m
-demo-1594119973-phd4f   1/1       Running   0          1m
-demo-1594119973-t9jc8   1/1       Running   0          1m
-demo-1594119973-v8t5t   1/1       Running   0          1m
-demo-1594119973-x5087   1/1       Running   0          1m
-demo-1594119973-x94x6   1/1       Running   0          1m
-demo-1594119973-zgkcd   1/1       Running   0          1m
-
-# Now, you can attach shell to pods to views it ip
-$ vagrant ssh master
-$ sudo docker ps | grep echo
-$ sudo docker exec -it container-id /bin/sh
-/ # ip addr
-		1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN qlen 1
-				link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
-				inet 127.0.0.1/8 scope host lo
-					 valid_lft forever preferred_lft forever
-		3: eth0@if12: <BROADCAST,MULTICAST,UP,LOWER_UP,M-DOWN> mtu 1500 qdisc noqueue state UP
-				link/ether 0a:58:ac:11:00:0b brd ff:ff:ff:ff:ff:ff
-				inet 172.17.0.11/16 scope global eth0
-					 valid_lft forever preferred_lft forever
-				inet 10.173.0.6/32 scope global eth0
-					 valid_lft forever preferred_lft forever
-# With above result, `10.173.0.28` is the ip address that is reachable from any pod
-# on any server through IPSec tunnel
-# From the pod, we can hit any other pods' ip
-# Let's try to hit pod 10.173.0.7
-/ # curl 10.173.0.7:5678
-Pong. You hit me, my hostname is demo-1594119973-8j0kw, from 10.173.0.8:45050
-/ # curl 10.173.0.9:5678
-Pong. You hit me, my hostname is demo-1594119973-phd4f, from 10.173.0.8:52928/
+make up
+# Until all pods is in running state
+make get_pods
+make find_ip
+make shell
+/# curl http://10.173.0.2:5678
+/# curl http://10.173.0.3:5678
+/# curl http://10.173.0.4:5678
+/# curl http://10.173.0.5:5678
+/# curl http://10.173.0.6:5678
+/# curl http://10.173.0.7:5678
+/# curl http://10.173.0.8:5678
+/# curl http://10.173.0.9:5678
 ```
 
 ## Demo Video
 
 [https://youtu.be/fwk6gODMGn0](https://youtu.be/fwk6gODMGn0)
 
-# Detail
+# How this cluster is setup
 
 ## Cluster detail
 
@@ -76,7 +38,6 @@ Nodes name and their address respectively are:
 * master: 10.9.0.2
 * minion1: 10.9.0.3
 * minion2: 10.9.0.4
-
 
 If those conflict with other existing VM you have on the system, please
 temporarily should down the other VMs for trying thi demonstration.
@@ -134,8 +95,6 @@ on there. It's preconfigured, you don't have to specify `kubeconfig`.
 
 ```
 vagrant ssh master
-$ whoami
-ubuntu
 $ kubectl get nodes
 ```
 
