@@ -1,1 +1,3 @@
 .vagrant
+admin.conf
+*.log

@@ -1,62 +1,56 @@
 # -*- mode: ruby -*-
 # vi: set ft=ruby :
 
-# Vagrantfile API/syntax version. Don't touch unless you know what you're doing!
 VAGRANTFILE_API_VERSION = "2"
-PREDEFINE_TOKEN = "390699.8859a9a052d8b9f9".freeze
-JOIN_CLUSTER = <<SCRIPT
-kubeadm join --token #{PREDEFINE_TOKEN} 10.9.0.2:6443 --skip-preflight-checks
-SCRIPT
 
-CONFIGURE_MASTER = <<SCRIPT
-mkdir -p /home/ubuntu/.kube
-cp -i /etc/kubernetes/admin.conf /home/ubuntu/.kube/config
-chown ubuntu:ubuntu /home/ubuntu/.kube/config
-SCRIPT
+# Define the whole cluster in this hashmap
+CLUSTER = {
+  :token => "390699.8859a9a052d8b9f9".freeze,
+  :nodes => {
+    :master  => {:ip => %(10.9.0.2).freeze, :mem => 1536},
+    :minion1 => {:ip => %(10.9.0.3).freeze, :mem => 512},
+    :minion2 => {:ip => %(10.9.0.4).freeze, :mem => 512},
+  }
+}
 
-def provison_script(node)
-  case node
-  when 'master'.freeze
-    # Output token so we can manually join into it
-    CONFIGURE_MASTER
-  else
-    JOIN_CLUSTER
+# Customize node setting such as memory, cpu, etc, this use
+# a platform depended API.
+# Currently we only support virtualbox
+def custom_node(vm, name)
+  vm.hostname = name
+  vm.provider "virtualbox" do |vb|
+    vb.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
+    vb.customize ["modifyvm", :id, "--memory", CLUSTER[:nodes][name][:mem]]
   end
 end
 
+# Define network stack
+def config_network(vm, name)
+  vm.network "private_network", ip: CLUSTER[:nodes][name][:ip]
+end
+
+def is_master(name)
+  name.to_s == 'master'
+end
+
+# Depend on node role, the bootstrap process is different by passing an argument
+# to bootstrap script
+def provision(vm, name)
+  vm.provision 'shell',
+    path: 'provison/bootstrap.sh',
+    args: (is_master(name) ? 'master': ''),
+    env: {KUBEADM_TOKEN: CLUSTER[:token], MASTER_ADDR: CLUSTER[:nodes][:master][:ip]}
+end
+
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
-  # Our custom box with pre-configured k8s and vagrant
-  # Provison 3 nodes cluster
-  config.ssh.username = "ubuntu"
-  config.vm.boot_timeout = 600 # 10 minute since it may slow to startup the cluster
+  config.vm.box = "ubuntu/xenial64"
+  config.vm.boot_timeout = 600 # 10 minute timeout since it may slow to startup the cluster
 
-  # First node is master
-  config.vm.define "master" do |master|
-    master.vm.provision :shell, inline: provison_script('master')
-    master.vm.box = "kureikain/k8s-cni-strongswan-master"
-    master.vm.hostname = "master.dev"
-    master.vm.network "private_network", ip: "10.9.0.2"
-    master.vm.provider "virtualbox" do |vb|
-      vb.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
-      # Give it more RAM since master run lots of stuff
-      vb.customize ["modifyvm", :id, "--memory", "1536"]
-    end
-  end
-
-  # Minion follow, with their ip increase and less memory
-  2.times do |i|
-    sleep 30 # Give it sometime to rest, on a powerful machine, we can remove this
-
-    config.vm.define "minion#{i+1}" do |minion|
-      minion.vm.provision :shell, inline: provison_script('minion')
-      minion.vm.box = "kureikain/k8s-cni-strongswan-minion"
-      minion.vm.hostname = "minion-#{i+1}.dev"
-      minion.vm.network "private_network", ip: "10.9.0.#{3+i}"
-
-      minion.vm.provider "virtualbox" do |vb|
-        vb.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
-        vb.customize ["modifyvm", :id, "--memory", "512"]
-      end
+  CLUSTER[:nodes].each do |name, _|
+    config.vm.define name, primary: is_master(name) do |node|
+      config_network node.vm, name
+      custom_node node.vm, name
+      provision node.vm, name
     end
   end
 end
