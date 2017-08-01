@@ -25,10 +25,6 @@ make shell
 /# curl http://10.173.0.9:5678
 ```
 
-## Demo Video
-
-[https://youtu.be/fwk6gODMGn0](https://youtu.be/fwk6gODMGn0)
-
 # How this cluster is setup
 
 ## Cluster detail
@@ -78,14 +74,11 @@ vagrant ssh minion2
 ```
 
 We also expose `admin.conf` so you can control the cluster easily by
-passing `--kubeconfig admin.conf` such as:
+passing `--kubeconfig admin.conf` direcly from your host machine:
 
 ```
 kubectl --kubeconfig admin.conf get nodes
 ```
-
-Note that it may take few minute for cluster to come up, depend on how
-fast the machine since we run 3 VM at a same time.
 
 Note that the cluster using *Kubernetes 1.7.2* so you may want to make
 sure your `kubectl` is at same version.
@@ -97,6 +90,8 @@ vagrant ssh master
 $ sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get nodes
 ```
 
+This create namespace `demo` and deploy echo server under that.
+
 ## Spin up pods:
 
 From this vagrant directory, deploy 9 pods with this:
@@ -106,10 +101,13 @@ kubectl --kubeconfig admin.conf apply -f echo-demo-pod.yaml
 ```
 
 This creates namespace `demo`, run 9 pods of a simple echo server which echo
-the target hostname and visitor ip address. This echo server runs on port 5678
+the target hostname and visitor ip address. This echo server runs on port 5678.
+The source code of this server is at: https://github.com/yeolabs/k8s-cni-ipsec/tree/master/final/echo_server
 
-Once all pods are ready, you can attach a shell into them, and pod
-should be able to communicate freely with other pods use the virtual ip
+Once all pods are ready, you can attach a shell into them, and try to
+`curl` other pod ip.
+
+They should be able to communicate freely with other pods use the virtual ip
 from VPN. That's the IP address of subnet *10.173.0.0/16*.
 
 To find the IP Address of node, you can SSH into a server and find the docker
@@ -162,3 +160,8 @@ Security Associations (11 up, 0 connecting):
       server{63}:   10.173.0.0/16 172.17.0.0/16 === 10.173.0.37/32
       server[38]: ESTABLISHED 16 minutes ago, 10.9.0.2[server]...172.17.0.21[13065]
 ```
+
+
+## Demo Video
+
+[https://youtu.be/fwk6gODMGn0](https://youtu.be/fwk6gODMGn0)
